@@ -334,7 +334,7 @@ td .sub{display:block;font-size:12.5px;color:var(--muted)}
 <script>
 'use strict';
 /* ================== utilidades ================== */
-const LS_KEY='mostrador-demo-v2';
+const LS_KEY='mostrador-demo-v3';
 const $=s=>document.querySelector(s);
 const NF$=new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',minimumFractionDigits:2,maximumFractionDigits:2});
 const NFn=new Intl.NumberFormat('es-AR',{maximumFractionDigits:2});
@@ -392,7 +392,7 @@ const ic=k=>`<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${IC[k]||''}<
 function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
 function seed(){
   const R=rng(20261014);
-  const S={v:2,seq:{FA:341,FB:1208,FC:1,TK:1},cierres:[],ajustes:[],ventas:[],compras:[],pagos:[],cobros:[],gastos:[],guia:{venta:false,compra:false,cierre:false,oculta:false}};
+  const S={v:3,seq:{FA:1,FB:1,FC:1,TK:1},cierres:[],ajustes:[],ventas:[],compras:[],pagos:[],cobros:[],gastos:[],guia:{venta:false,compra:false,cierre:false,oculta:false}};
   S.config={nombre:'Almacén La Vertiente',razon:'La Vertiente S.R.L.',cuit:'30-71234567-0',iibb:'30-71234567-0',domicilio:'Av. San Martín 1250',inicio:'2019-03-01',condIva:'RI',pv:3,fondo:20000,letra:'normal'};
   S.proveedores=[
     {id:'p1',nombre:'Distribuidora del Valle S.A.',cuit:'30-70985214-6',rubro:'Almacén seco',contacto:'Martín Ferreyra',tel:'2944 41-2233',plazo:15},
@@ -438,8 +438,11 @@ function seed(){
   const at=(daysAgo,h,m)=>{const d=new Date(now);d.setDate(d.getDate()-daysAgo);d.setHours(h,m||0,0,0);return d.toISOString()};
   const pick=a=>a[Math.floor(R()*a.length)];
   const wMedio=()=>{const r=R();return r<.40?'Efectivo':r<.65?'Débito':r<.75?'Crédito':r<.95?'Mercado Pago':'Transferencia'};
-  for(let d=29;d>=0;d--){
-    const n=5+Math.floor(R()*7)+(new Date(at(d,12)).getDay()===6?4:0);
+  for(let d=364;d>=0;d--){
+    const fd=new Date(at(d,12)),mo=fd.getMonth();
+    const temporada=(mo===0||mo===1||mo===6||mo===11)?3:(mo===4||mo===5)?-1:0;
+    const n=Math.max(2,(d>30?3:5)+Math.floor(R()*(d>30?5:7))+temporada+(fd.getDay()===6?3:0));
+    const infl=Math.pow(1.025,-d/30);
     const hours=[];for(let i=0;i<n;i++)hours.push([9+Math.floor(R()*12),Math.floor(R()*60)]);
     hours.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
     for(const [h,mi] of hours){
@@ -447,7 +450,7 @@ function seed(){
       const k=1+Math.floor(R()*4); const used=new Set(); const items=[];
       for(let j=0;j<k;j++){const p=pick(S.productos);if(used.has(p.id))continue;used.add(p.id);
         const cant=p.unidad==='kg'?Math.round((0.5+R()*1.5)*4)/4:1+Math.floor(R()*3);
-        items.push({pid:p.id,nombre:p.nombre,cant,precio:p.precio,costo:p.costo,iva:p.iva});}
+        items.push({pid:p.id,nombre:p.nombre,cant,precio:r2(p.precio*infl),costo:r2(p.costo*infl),iva:p.iva});}
       const r=R(); let cli='c0',tipo='FB',medio=wMedio();
       if(r<.07){cli='c1';tipo='FA';medio=R()<.6?'Cuenta corriente':'Transferencia';items.forEach(i=>i.cant*=4)}
       else if(r<.11){cli='c2'} else if(r<.13){cli='c3'}
@@ -482,6 +485,23 @@ function seed(){
   g(4,'Impuestos y tasas','Tasa municipal comercio',21300,'Transferencia');
   g(2,'Sueldos','Sueldo empleado (quincena)',310000,'Transferencia');
   g(0,'Insumos del local','Artículos de limpieza del local',6200,'Efectivo');
+  for(let k=11;k>=1;k--){
+    const base=new Date(now.getFullYear(),now.getMonth()-k,1);const infl=Math.pow(1.025,-k);
+    const fecha=dd=>new Date(base.getFullYear(),base.getMonth(),dd,9,15).toISOString();
+    S.proveedores.forEach((pv,ix)=>{
+      const items=S.productos.filter(x=>x.provId===pv.id).map(x=>({pid:x.id,nombre:x.nombre,cant:x.unidad==='kg'?10+Math.round(R()*20):12*(1+Math.floor(R()*3)),costo:r2(x.costo*infl),iva:x.iva}));
+      const tipo=pv.id==='p5'?'Factura C':'Factura A';
+      S.compras.push(buildCompra({provId:pv.id,tipo,nroComp:pad(1+ix,5)+'-'+pad(Math.floor(R()*99999),8),cond:'contado',medio:pv.id==='p5'?'Efectivo':'Transferencia',items,fecha:fecha(3+ix*4)}));
+    });
+    const gg=(dd,cat,det,monto,medio)=>S.gastos.push({id:uid(),fecha:fecha(dd),categoria:cat,detalle:det,monto:r2(monto*infl),medio});
+    gg(5,'Alquiler','Alquiler del local',480000,'Transferencia');
+    gg(10,'Impuestos y tasas','Tasa municipal comercio',21300,'Transferencia');
+    gg(12,'Luz, gas, internet','Electricidad',62000+R()*15000,'Transferencia');
+    gg(15,'Sueldos','Sueldo empleado (quincena)',310000,'Transferencia');
+    gg(18,'Luz, gas, internet','Internet y teléfono',24900,'Débito');
+    gg(20,'Insumos del local','Bolsas y rollos de ticket',9000+R()*8000,'Efectivo');
+    gg(28,'Sueldos','Sueldo empleado (quincena)',310000,'Transferencia');
+  }
   S.ajustes.push({id:uid(),fecha:at(4,19),pid:'x15',delta:-2,tipo:'Egreso',motivo:'Vencido'});
   S.ajustes.push({id:uid(),fecha:at(9,8),pid:'x21',delta:-1,tipo:'Egreso',motivo:'Se rompió'});
   return S;
@@ -489,7 +509,7 @@ function seed(){
 
 /* ================== lógica de negocio ================== */
 let S; let downloads=null;
-function load(){try{const raw=localStorage.getItem(LS_KEY);if(raw){const s=JSON.parse(raw);if(s&&s.v===2){S=s;return}}}catch(e){}S=seed();save()}
+function load(){try{const raw=localStorage.getItem(LS_KEY);if(raw){const s=JSON.parse(raw);if(s&&s.v===3){S=s;return}}}catch(e){}S=seed();save()}
 function save(){try{localStorage.setItem(LS_KEY,JSON.stringify(S))}catch(e){}}
 function calcPrecio(p){return r2(num(p.costo)*(1+num(p.margen)/100)*(1+num(p.iva)/100))}
 function margenDesde(p,precio){const base=num(p.costo)*(1+num(p.iva)/100);return base>0?r2((precio/base-1)*100):0}
@@ -566,7 +586,7 @@ const HELP={
  caja:['Cómo manejar la caja',['Cada venta y cada gasto se anota solo en la caja del día.','Si sacás plata de la caja para pagar algo, tocá "Anotar un gasto".','Al cerrar el local, contá los billetes y tocá "Cerrar la caja". Te dice si sobra o falta plata.']],
  proveedores:['Proveedores',['Cada tarjeta muestra cuánto le debés a ese proveedor.','Cuando le pagás, tocá "Pagar". Se descuenta de la deuda.','"Ver cuenta" muestra todas las compras y pagos, como un resumen de cuenta.']],
  clientes:['Clientes y fiado',['Acá están los clientes que te compran seguido o a los que les fiás.','Cuando un cliente te paga lo que debe, tocá "Cobrar".','"Recordarle" copia un mensaje amable para mandarle por WhatsApp.']],
- informes:['Informes',['"Cómo me fue" te dice cuánto ganaste en el mes, qué se vende más y qué no se vende.','"Para el contador" tiene los libros de IVA. Tocá "Descargar para el contador" y mandale el Excel.']],
+ informes:['Informes',['En "Historial" elegí Día, Semana, Mes o Año para ver cuánto vendiste y ganaste.','Con "Anterior" y "Siguiente" vas hacia atrás o adelante. Al lado de lo vendido ves si subió o bajó contra el período anterior.','En el mes o el año, tocá una fila para ver ese día o ese mes en detalle.','"Para el contador" tiene los libros de IVA. Tocá "Descargar para el contador" y mandale el Excel.']],
  config:['Configuración',['Cargá los datos de tu comercio tal como tienen que salir en las facturas.','Si sos monotributista, elegí Monotributo y la app va a hacer Facturas C.','Si te cuesta leer, activá la letra grande.']]
 };
 function showHelp(k){const h=HELP[k];if(!h)return;openModal(mHead(h[0])+`<div class="mb"><ol class="howto">${h[1].map(s=>`<li>${s}</li>`).join('')}</ol></div><div class="mf"><button class="btn primary" data-act="close">Entendido</button></div>`)}
@@ -1002,49 +1022,117 @@ function cliForm(c){const isNew=!c;c=c||{id:'',nombre:'',condIva:'CF',cuit:'',te
   </div></div><div class="mf"><button type="button" class="btn" data-act="close">Cancelar</button><button class="btn primary" type="submit">Guardar</button></div></form>`)}
 
 /* ================== INFORMES ================== */
-let iTab='resultado',rMes=null;
-function vInformes(){
-  rMes=rMes||today().slice(0,7);
-  return head('Informes','Cómo le va al negocio y lo que necesita tu contador.',`<select id="r-mes" data-rep="mes" aria-label="Mes">${lastMonths(6).map(k=>opt(k,mLabel(k),rMes)).join('')}</select>`,'informes')+
-  tabs(iTab,[['resultado','Cómo me fue','informes'],['contador','Para el contador','down']],'itab')+(iTab==='resultado'?tResultado():tContador());
+let iTab='historial',rMes=null,hp={tipo:'mes',ref:null};
+const DIAS=['lun','mar','mié','jue','vie','sáb','dom'];
+const MESC=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const PER={dia:'Día',semana:'Semana',mes:'Mes',anio:'Año'};
+function rango(tipo,ref){
+  const r=new Date(ref+'T00:00');let from,to,label;const sub=[];
+  if(tipo==='dia'){
+    from=new Date(r);to=new Date(r);to.setDate(to.getDate()+1);
+    const ay=new Date();ay.setDate(ay.getDate()-1);
+    label=ref===today()?'Hoy':ref===dkey(ay)?'Ayer':r.toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+    for(let h=8;h<=22;h++){const f=new Date(r),t=new Date(r);f.setHours(h===8?0:h);t.setHours(h===22?24:h+1);sub.push({l:h+'h',f,t})}
+  }else if(tipo==='semana'){
+    from=new Date(r);from.setDate(from.getDate()-((r.getDay()+6)%7));to=new Date(from);to.setDate(to.getDate()+7);
+    const fin=new Date(to);fin.setDate(fin.getDate()-1);
+    label=from.getMonth()===fin.getMonth()?`Semana del ${from.getDate()} al ${fin.getDate()} de ${MESES[fin.getMonth()]}`:`Semana del ${from.getDate()} de ${MESES[from.getMonth()]} al ${fin.getDate()} de ${MESES[fin.getMonth()]}`;
+    for(let i=0;i<7;i++){const f=new Date(from);f.setDate(f.getDate()+i);const t=new Date(f);t.setDate(t.getDate()+1);sub.push({l:DIAS[i]+' '+f.getDate(),f,t,drill:['dia',dkey(f)]})}
+  }else if(tipo==='mes'){
+    from=new Date(r.getFullYear(),r.getMonth(),1);to=new Date(r.getFullYear(),r.getMonth()+1,1);
+    label=MESES[from.getMonth()]+' '+from.getFullYear();label=label[0].toUpperCase()+label.slice(1);
+    for(let f=new Date(from);f<to;f.setDate(f.getDate()+1)){const ff=new Date(f),t=new Date(f);t.setDate(t.getDate()+1);sub.push({l:String(ff.getDate()),f:ff,t,drill:['dia',dkey(ff)],nombre:DIAS[(ff.getDay()+6)%7]+' '+ff.getDate()})}
+  }else{
+    from=new Date(r.getFullYear(),0,1);to=new Date(r.getFullYear()+1,0,1);label='Año '+from.getFullYear();
+    for(let m=0;m<12;m++){const f=new Date(from.getFullYear(),m,1),t=new Date(from.getFullYear(),m+1,1);sub.push({l:MESC[m],f,t,drill:['mes',dkey(f)],nombre:MESES[m]})}
+  }
+  return {from,to,label,sub};
 }
-function tResultado(){
-  const vm=S.ventas.filter(v=>mkey(v.fecha)===rMes);
-  const ventas=sum(vm,'total'),neto=sum(vm,'neto'),costo=sum(vm,'costo'),gastos=sum(S.gastos.filter(g=>mkey(g.fecha)===rMes),'monto');
-  const ivaV=ventas-neto,res=neto-costo-gastos;
-  const top={};vm.forEach(v=>v.items.forEach(i=>{const t=top[i.pid]=top[i.pid]||{nombre:i.nombre,cant:0,total:0};t.cant+=i.cant;t.total+=i.precio*i.cant*(1-(v.desc||0)/100)}));
+function moverRef(tipo,ref,dir){const d=new Date(ref+'T12:00');if(tipo==='dia')d.setDate(d.getDate()+dir);else if(tipo==='semana')d.setDate(d.getDate()+7*dir);else if(tipo==='mes'){d.setDate(1);d.setMonth(d.getMonth()+dir)}else{d.setDate(1);d.setMonth(0);d.setFullYear(d.getFullYear()+dir)}return dkey(d)}
+const enR=(f,R)=>{const t=new Date(f);return t>=R.from&&t<R.to};
+function statsR(R){const vs=S.ventas.filter(v=>enR(v.fecha,R)),gs=S.gastos.filter(g=>enR(g.fecha,R));
+  const total=sum(vs,'total'),neto=sum(vs,'neto'),costo=sum(vs,'costo'),gastos=sum(gs,'monto');
+  return {vs,gs,total,neto,costo,gastos,n:vs.length,bruto:neto-costo,gan:neto-costo-gastos}}
+function chartBars(labels,vals,hi,aria){
+  const n=vals.length,max=Math.max(...vals,1);const step=Math.pow(10,Math.floor(Math.log10(max)));const top=Math.ceil(max/step/2)*step*2||1;
+  const W=660,H=230,L=60,B=28,T=10,cw=(W-L-8)/n,bw=Math.max(cw*0.64,2);const every=n>16?Math.ceil(n/12):1;
+  let g='';for(let i=0;i<=4;i++){const v=top*i/4,y=T+(H-T-B)*(1-i/4);g+=`<line class="grid-l" x1="${L}" x2="${W-4}" y1="${y}" y2="${y}"/><text x="${L-8}" y="${y+4}" text-anchor="end">$${NFc.format(v)}</text>`}
+  const bars=vals.map((v,i)=>{const h=(H-T-B)*v/top,x=L+i*cw+(cw-bw)/2,y=H-B-h;
+    return `<rect class="b ${i===hi?'today':''}" x="${x}" y="${y}" width="${bw}" height="${Math.max(h,0)}" rx="2"><title>${esc(labels[i])}: ${f$(v)}</title></rect>${i%every===0?`<text x="${x+bw/2}" y="${H-9}" text-anchor="middle">${esc(labels[i])}</text>`:''}`}).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(aria)}">${g}${bars}</svg>`;
+}
+function vInformes(){
+  return head('Informes','Tu historial de ventas por día, semana, mes y año, y lo que necesita tu contador.','','informes')+
+  tabs(iTab,[['historial','Historial','informes'],['contador','Para el contador','down']],'itab')+(iTab==='historial'?tHistorial():tContador());
+}
+function tHistorial(){
+  hp.ref=hp.ref||today();
+  const R=rango(hp.tipo,hp.ref),P=rango(hp.tipo,moverRef(hp.tipo,hp.ref,-1));
+  const now=new Date();const hayMas=R.to<=now;const parcial=now>=R.from&&now<R.to;
+  const st=statsR(R),sp=statsR(parcial?{from:P.from,to:new Date(P.from.getTime()+(now-R.from))}:P);
+  const primera=S.ventas.reduce((m,v)=>v.fecha<m?v.fecha:m,'9');const completo=primera!=='9'&&new Date(primera)<=P.from;
+  const pct=completo&&sp.total>0?(st.total-sp.total)/sp.total*100:null;
+  const antes={dia:'el día anterior',semana:'la semana anterior',mes:'el mes anterior',anio:'el año anterior'}[hp.tipo];
+  const porSub=R.sub.map(b=>{const vs=st.vs.filter(v=>enR(v.fecha,b));return {...b,vs,total:sum(vs,'total'),gan:sum(vs,v=>v.neto-v.costo)}});
+  const hi=porSub.findIndex(b=>now>=b.f&&now<b.t);
+  const top={};st.vs.forEach(v=>v.items.forEach(i=>{const t=top[i.pid]=top[i.pid]||{nombre:i.nombre,cant:0,total:0};t.cant+=i.cant;t.total+=i.precio*i.cant*(1-(v.desc||0)/100)}));
   const topL=Object.values(top).sort((a,b)=>b.total-a.total).slice(0,8);
-  const porMed={};vm.forEach(v=>porMed[ML(v.medio)]=(porMed[ML(v.medio)]||0)+v.total);const mx=Math.max(1,...Object.values(porMed));
-  const d30=new Date();d30.setDate(d30.getDate()-30);const vend=new Set();S.ventas.filter(v=>new Date(v.fecha)>=d30).forEach(v=>v.items.forEach(i=>vend.add(i.pid)));
-  const sinMov=S.productos.filter(p=>!vend.has(p.id)&&p.stock>0);
-  return `<div class="grid g2">
-   <div class="card"><div class="card-h"><h2>Las cuentas de ${mLabel(rMes)}</h2></div><div class="card-b" style="display:flex;flex-direction:column;gap:8px">
-    <div class="tot"><span>Vendiste</span><b>${f$(ventas)}</b></div>
+  const porMed={};st.vs.forEach(v=>porMed[ML(v.medio)]=(porMed[ML(v.medio)]||0)+v.total);const mx=Math.max(1,...Object.values(porMed));
+  const ivaV=st.total-st.neto;
+  const sublabel={dia:'Ventas por hora',semana:'Ventas por día',mes:'Ventas por día',anio:'Ventas por mes'}[hp.tipo];
+  let detalle='';
+  if(hp.tipo==='dia'){
+    const vs=st.vs.slice().sort((a,b)=>a.fecha<b.fecha?1:-1);
+    detalle=`<div class="card"><div class="card-h"><h2>Ventas del día</h2><span class="hint">${vs.length} ventas</span></div><div class="card-b"><div class="list">${vs.slice(0,80).map(v=>`<div class="li"><div class="t"><b>${fH(v.fecha)} · ${esc((cli(v.clienteId)||{}).nombre)}</b><span class="hint">${cbBadge(v.tipo)} ${v.nro} · ${esc(ML(v.medio))} · ${v.items.length} ${v.items.length===1?'producto':'productos'}</span></div><span class="num"><b>${f$(v.total)}</b> <button class="btn sm ghost" data-act="vercbte" data-id="${v.id}">Ver</button></span></div>`).join('')||'<div class="empty">No hubo ventas este día.</div>'}</div></div></div>`;
+  }else{
+    const filas=porSub.slice().filter(b=>b.f<=now);
+    const nom=hp.tipo==='anio'?'Mes':'Día';
+    detalle=`<div class="card"><div class="card-h"><h2>${hp.tipo==='anio'?'Mes por mes':'Día por día'}</h2><span class="hint">Tocá una fila para ver el detalle</span></div><div class="card-b"><div class="tw"><table><thead><tr><th>${nom}</th><th class="n">Ventas</th><th class="n">Vendiste</th><th class="n">Ganancia bruta</th><th></th></tr></thead><tbody>
+      ${filas.slice().reverse().map(b=>`<tr><td><b>${esc(b.nombre||b.l)}</b></td><td class="n">${b.vs.length}</td><td class="n"><b>${f$(b.total)}</b></td><td class="n">${f$(b.gan)}</td><td style="text-align:right"><button class="btn sm" data-act="hpdrill" data-t="${b.drill[0]}" data-r="${b.drill[1]}">Ver ${b.drill[0]==='dia'?'día':'mes'}</button></td></tr>`).join('')||'<tr><td colspan="5" class="empty">Sin datos.</td></tr>'}
+    </tbody><tfoot><tr><td>Total</td><td class="n">${st.n}</td><td class="n">${f$(st.total)}</td><td class="n">${f$(st.bruto)}</td><td></td></tr></tfoot></table></div></div></div>`;
+  }
+  return `<div class="toolbar" style="justify-content:space-between">
+    <div class="chips" role="group" aria-label="Período">${Object.entries(PER).map(([k,l])=>`<button class="chip" data-act="hptipo" data-t="${k}" aria-pressed="${hp.tipo===k}">${l}</button>`).join('')}</div>
+    <div class="toolbar"><button class="btn sm" data-act="hpmov" data-d="-1" aria-label="Período anterior">‹ Anterior</button><b style="min-width:12ch;text-align:center">${esc(R.label)}</b><button class="btn sm" data-act="hpmov" data-d="1" ${hayMas?'':'disabled'} aria-label="Período siguiente">Siguiente ›</button>${hp.ref!==today()?'<button class="link" data-act="hphoy">Ir a hoy</button>':''}</div>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><span class="l">Vendiste</span><span class="v">${f$(st.total)}</span><span class="s">${pct==null?'No hay datos completos '+antes.replace(/^el /,'del ').replace(/^la /,'de la '):`<b style="color:${pct>=0?'var(--ok)':'var(--bad)'}">${pct>=0?'▲':'▼'} ${fn(Math.abs(Math.round(pct)))}%</b> contra ${antes}${parcial?' a esta altura':''}`}</span></div>
+    <div class="kpi"><span class="l">Cantidad de ventas</span><span class="v">${st.n}</span><span class="s">Ticket promedio ${f$(st.n?st.total/st.n:0)}</span></div>
+    <div class="kpi ${st.gan>=0?'good':'alert'}"><span class="l">${st.gan>=0?'Ganancia':'Pérdida'}</span><span class="v">${f$(Math.abs(st.gan))}</span><span class="s">Después de mercadería y gastos</span></div>
+    <div class="kpi"><span class="l">Gastos</span><span class="v">${f$(st.gastos)}</span><span class="s">${st.gs.length} gastos anotados</span></div>
+  </div>
+  <div class="card"><div class="card-h"><h2>${sublabel}</h2>${hi>=0?'<span class="hint">La barra verde es el momento actual</span>':''}</div><div class="card-b chart">${chartBars(porSub.map(b=>b.l),porSub.map(b=>b.total),hi,sublabel+' · '+R.label)}</div></div>
+  ${detalle}
+  <div class="grid g2">
+   <div class="card"><div class="card-h"><h2>Las cuentas</h2></div><div class="card-b" style="display:flex;flex-direction:column;gap:8px">
+    <div class="tot"><span>Vendiste</span><b>${f$(st.total)}</b></div>
     ${ivaV>0.5?`<div class="tot"><span>Menos el IVA (es de ARCA)</span><span>− ${f$(ivaV)}</span></div>`:''}
-    <div class="tot"><span>Menos lo que te costó la mercadería</span><span>− ${f$(costo)}</span></div>
-    <div class="tot"><span>Menos los gastos del local</span><span>− ${f$(gastos)}</span></div>
-    <div class="sumrow" style="margin-top:6px"><span><b>${res>=0?'Te quedó de ganancia':'Perdiste'}</b></span><span class="vuelto" style="color:${res<0?'var(--bad)':'var(--ok)'}">${f$(Math.abs(res))}</span></div>
-    <p class="hint" style="margin:0">Es una cuenta aproximada para que sepas cómo vas. No reemplaza el balance de tu contador.</p>
+    <div class="tot"><span>Menos lo que te costó la mercadería</span><span>− ${f$(st.costo)}</span></div>
+    <div class="tot"><span>Menos los gastos del local</span><span>− ${f$(st.gastos)}</span></div>
+    <div class="sumrow" style="margin-top:6px"><span><b>${st.gan>=0?'Te quedó de ganancia':'Perdiste'}</b></span><span class="vuelto" style="color:${st.gan<0?'var(--bad)':'var(--ok)'}">${f$(Math.abs(st.gan))}</span></div>
+    <p class="hint" style="margin:0">${hp.tipo==='dia'?'En un solo día los gastos grandes, como el alquiler, pueden dar pérdida aunque el mes cierre bien.':'Cuenta aproximada para que sepas cómo vas. No reemplaza el balance de tu contador.'}</p>
    </div></div>
    <div class="card"><div class="card-h"><h2>Lo que más se vendió</h2></div><div class="card-b"><div class="list">
     ${topL.map((t,i)=>`<div class="li"><div class="t"><b>${i+1}. ${esc(t.nombre)}</b><span class="hint">${fn(t.cant)} vendidos</span></div><span class="num">${f$(t.total)}</span></div>`).join('')||'<div class="empty">No hubo ventas.</div>'}
    </div></div></div>
   </div>
   <div class="grid g2">
-   <div class="card"><div class="card-h"><h2>Cómo te pagan</h2></div><div class="card-b"><div class="bars">${Object.entries(porMed).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="bar"><span>${esc(k)}</span><div class="track"><div class="fill" style="width:${v/mx*100}%"></div></div><span class="num">${f$(v)}</span></div>`).join('')||'<div class="empty">—</div>'}</div></div></div>
-   <div class="card"><div class="card-h"><h2>Productos que no se venden</h2></div><div class="card-b">${sinMov.length?`<p class="muted" style="margin:0 0 8px">Hace 30 días que no se venden. Pensá en ofertarlos o dejar de comprarlos.</p><div class="list">${sinMov.slice(0,6).map(p=>`<div class="li"><span>${esc(p.nombre)}</span><span class="hint">Tenés ${fn(p.stock)}</span></div>`).join('')}</div>`:`<div class="okbox">${ic('check')}Todos tus productos se vendieron en los últimos 30 días.</div>`}</div></div>
+   <div class="card"><div class="card-h"><h2>Cómo te pagaron</h2></div><div class="card-b"><div class="bars">${Object.entries(porMed).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="bar"><span>${esc(k)}</span><div class="track"><div class="fill" style="width:${v/mx*100}%"></div></div><span class="num">${f$(v)}</span></div>`).join('')||'<div class="empty">—</div>'}</div></div></div>
+   <div class="card"><div class="card-h"><h2>Gastos del período</h2></div><div class="card-b"><div class="list">${(()=>{const pc={};st.gs.forEach(g=>pc[g.categoria]=(pc[g.categoria]||0)+g.monto);return Object.entries(pc).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="li"><span>${esc(k)}</span><b class="num">${f$(v)}</b></div>`).join('')||'<div class="empty">No hubo gastos.</div>'})()}</div></div></div>
   </div>
-  <div><button class="btn" data-act="expall">${ic('down')}Descargar todo en Excel</button></div>`;
+  <div class="toolbar"><button class="btn" data-act="exphist">${ic('down')}Descargar este período en Excel</button><button class="btn ghost" data-act="expall">Descargar todos los datos</button></div>`;
 }
 function libroVentas(m){return S.ventas.filter(v=>v.tipo!=='TK'&&mkey(v.fecha)===m).sort((a,b)=>a.fecha<b.fecha?-1:1)}
 function libroCompras(m){return S.compras.filter(c=>c.tipo!=='Remito'&&mkey(c.fecha)===m).sort((a,b)=>a.fecha<b.fecha?-1:1)}
 function rowsIvaVentas(m){return libroVentas(m).map(v=>{const c=cli(v.clienteId)||{};const mono=v.tipo==='FC';return {'Fecha':fD(v.fecha),'Tipo':TIPOS[v.tipo].nombre,'Cód.':TIPOS[v.tipo].cod,'Punto de venta':v.nro.split('-')[0],'Número':v.nro.split('-')[1],'Cliente':c.nombre,'CUIT/Doc':c.cuit||'','Cond. IVA':c.condIva,'Neto 21%':mono?0:v.n21,'IVA 21%':mono?0:v.i21,'Neto 10,5%':mono?0:v.n105,'IVA 10,5%':mono?0:v.i105,'Exento/No grav.':mono?v.total:v.nEx,'Total':v.total,'CAE':v.cae}})}
 function rowsIvaCompras(m){return libroCompras(m).map(c=>{const p=prov(c.provId)||{};return {'Fecha':fD(c.fecha),'Comprobante':c.tipo,'Número':c.nroComp,'Proveedor':p.nombre,'CUIT':p.cuit,'Neto gravado':c.tipo==='Factura A'?c.neto:0,'IVA crédito fiscal':c.iva,'No gravado / no discrimina':c.tipo==='Factura A'?0:c.total,'Total':c.total}})}
 function tContador(){
+  rMes=rMes||today().slice(0,7);
   const lv=libroVentas(rMes),lc=libroCompras(rMes);const ri=S.config.condIva==='RI';
   const deb=sum(lv.filter(v=>v.tipo!=='FC'),v=>v.i21+v.i105),cred=sum(lc,'iva'),posIva=deb-cred;
   const d12=new Date();d12.setMonth(d12.getMonth()-12);const fact12=sum(S.ventas.filter(v=>v.tipo!=='TK'&&new Date(v.fecha)>=d12),'total');
-  return `<div class="card"><div class="card-b" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;justify-content:space-between">
+  return `<div class="toolbar"><label for="r-mes">Mes:</label><select id="r-mes" data-rep="mes">${lastMonths(12).map(k=>opt(k,mLabel(k),rMes)).join('')}</select></div>
+  <div class="card"><div class="card-b" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;justify-content:space-between">
     <div style="max-width:60ch"><h2 style="font-size:18px">Todo lo de ${mLabel(rMes)} en un solo archivo</h2><p class="muted" style="margin:4px 0 0">Descargá el Excel con los libros de IVA de ventas y compras, y mandáselo a tu contador.</p></div>
     <button class="btn primary" data-act="expiva">${ic('down')}Descargar para el contador</button></div></div>
   <div class="kpis">
@@ -1190,8 +1278,15 @@ document.addEventListener('click',e=>{
     case 'cobrocli':pagoForm('cli',id);break;
     case 'recordatorio':{const c=cli(id);copyText(`Hola ${c.nombre.split(' ')[0]}, ¿cómo estás? Te escribo de ${S.config.nombre} para recordarte que quedó un saldo de ${f$(saldoCli(id))}. Cuando puedas, avisame. ¡Gracias!`);break}
     /* informes */
+    case 'hptipo':hp.tipo=b.dataset.t;render();break;
+    case 'hpmov':hp.ref=moverRef(hp.tipo,hp.ref||today(),+b.dataset.d);if(new Date(hp.ref+'T00:00')>new Date())hp.ref=today();render();break;
+    case 'hphoy':hp.ref=today();render();break;
+    case 'hpdrill':hp.tipo=b.dataset.t;hp.ref=b.dataset.r;render();window.scrollTo(0,0);break;
+    case 'exphist':{const R=rango(hp.tipo,hp.ref||today());const st=statsR(R);
+      const resumen=R.sub.filter(x=>x.f<=new Date()).map(x=>{const vs=st.vs.filter(v=>enR(v.fecha,x));return {'Período':x.nombre||x.l,'Ventas':vs.length,'Vendiste':r2(sum(vs,'total')),'Ganancia bruta':r2(sum(vs,v=>v.neto-v.costo))}});
+      exportXLSX(`historial-${slug(R.label)}.xlsx`,{'Resumen':resumen,'Ventas':st.vs.map(v=>({'Fecha':fDT(v.fecha),'Comprobante':TIPOS[v.tipo].nombre,'Número':v.nro,'Cliente':(cli(v.clienteId)||{}).nombre,'Cómo pagó':ML(v.medio),'Total':v.total,'Ganancia bruta':r2(v.neto-v.costo)})),'Gastos':st.gs.map(g=>({'Fecha':fD(g.fecha),'Tipo':g.categoria,'Detalle':g.detalle,'Monto':g.monto}))});break}
     case 'expiva':exportXLSX(`para-el-contador-${rMes}.xlsx`,{'IVA Ventas':rowsIvaVentas(rMes),'IVA Compras':rowsIvaCompras(rMes)});break;
-    case 'expall':exportXLSX(`${slug(S.config.nombre)}-${today()}.xlsx`,{'Productos':rowsProductos(),'Ventas':rowsVentas(),'Detalle de ventas':rowsDetalle(),'Mercadería recibida':rowsCompras(),'Proveedores':rowsProv(),'Clientes':rowsCli(),'Gastos':rowsGastos(),['IVA Ventas '+rMes]:rowsIvaVentas(rMes),['IVA Compras '+rMes]:rowsIvaCompras(rMes)});break;
+    case 'expall':rMes=rMes||today().slice(0,7);exportXLSX(`${slug(S.config.nombre)}-${today()}.xlsx`,{'Productos':rowsProductos(),'Ventas':rowsVentas(),'Detalle de ventas':rowsDetalle(),'Mercadería recibida':rowsCompras(),'Proveedores':rowsProv(),'Clientes':rowsCli(),'Gastos':rowsGastos(),['IVA Ventas '+rMes]:rowsIvaVentas(rMes),['IVA Compras '+rMes]:rowsIvaCompras(rMes)});break;
     /* config */
     case 'reset':confirmReset=b.dataset.k;render();break;
     case 'noreset':confirmReset=null;render();break;
